@@ -1,12 +1,30 @@
+# Data — too large for git
 data/
+
+# Model weights
 models/weights/
-__pycache__/
-*.pyc
 *.pth
 *.pt
 *.safetensors
-.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
 *.egg-info/
+.env
+
+# Jupyter
 .ipynb_checkpoints/
-results/figures/
-results/logs/
+
+# Archives
+*.rar
+*.zip
+*.tar.gz
+
+# OS
+.DS_Store
+Thumbs.db
+
+# MedMNIST cache
+~/.medmnist/

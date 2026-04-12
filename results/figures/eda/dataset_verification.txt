@@ -1,0 +1,11 @@
+=== Dataset Verification vs Official ChestMNIST ===
+
+Split      Expected     Actual    Match
+------------------------------------------
+train         78468      78452 MISMATCH
+val           11219      11212 MISMATCH
+test          22433      22430 MISMATCH
+------------------------------------------
+TOTAL        112120     112094 MISMATCH
+
+Result: DISCREPANCY FOUND
