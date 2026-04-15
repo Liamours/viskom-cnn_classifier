@@ -138,12 +138,11 @@ def main(config_path: str):
                    "lr": optimizer.param_groups[0]["lr"]}
         trainer.save_best(val_metrics, epoch)
 
-        print(f"  train_loss : {train_metrics['train_loss']:.4f}")
-        print(f"  val_loss   : {val_metrics['val_loss']:.4f}")
-        print(f"  val_f1     : {val_metrics['val_f1']:.4f}  (macro)")
-        print(f"  val_auc    : {val_metrics['val_auc']:.4f}")
-        print(f"  val_ham    : {val_metrics['val_ham']:.4f}")
-        print(f"  lr         : {optimizer.param_groups[0]['lr']:.2e}\n")
+        lr = optimizer.param_groups[0]['lr']
+        print(f"  train_loss : {train_metrics['train_loss']:.4f}  |  train_f1 : {train_metrics['train_f1']:.4f}")
+        print(f"  val_loss   : {val_metrics['val_loss']:.4f}  |  val_f1   : {val_metrics['val_f1']:.4f}  (macro)")
+        print(f"  val_auc    : {val_metrics['val_auc']:.4f}  |  val_ham  : {val_metrics['val_ham']:.4f}")
+        print(f"  val_subset : {val_metrics['val_subset']:.4f}  |  lr       : {lr:.2e}\n")
 
         log_rows.append(metrics)
 

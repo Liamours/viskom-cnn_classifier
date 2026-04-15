@@ -35,3 +35,7 @@ Thumbs.db
 # Reference PDFs and Excel in report (large binary, not source)
 report/*.pdf
 report/*.xlsx
+
+# Generated training outputs (logs + eval results change every run)
+results/logs/
+results/evaluation/
