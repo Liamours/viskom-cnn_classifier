@@ -19,16 +19,15 @@ data:
   num_workers: 4
 
 training:
-  epochs: 2
+  epochs: 30
   lr: 1.0e-4
   weight_decay: 1.0e-4
   optimizer: adamw
   scheduler: cosine
-  warmup_epochs: 1
+  warmup_epochs: 2
   grad_clip: 1.0
   pos_weight: null
 
 output:
   weights_dir: models/weights/ghostnetv3
   logs_dir: results/logs/ghostnetv3
-  save_best_metric: val_auc

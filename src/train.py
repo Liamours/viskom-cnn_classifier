@@ -136,7 +136,7 @@ def main(config_path: str):
 
         metrics = {**train_metrics, **val_metrics, "epoch": epoch + 1,
                    "lr": optimizer.param_groups[0]["lr"]}
-        trainer.save_best(val_metrics, epoch)
+        trainer.save_best(val_metrics)
 
         lr = optimizer.param_groups[0]['lr']
         print(f"  train_loss : {train_metrics['train_loss']:.4f}  |  train_f1 : {train_metrics['train_f1']:.4f}")

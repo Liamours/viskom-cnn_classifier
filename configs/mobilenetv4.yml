@@ -31,4 +31,3 @@ training:
 output:
   weights_dir: models/weights/mobilenetv4
   logs_dir: results/logs/mobilenetv4
-  save_best_metric: val_auc

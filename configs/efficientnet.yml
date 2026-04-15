@@ -31,4 +31,3 @@ training:
 output:
   weights_dir: models/weights/efficientnet
   logs_dir: results/logs/efficientnet
-  save_best_metric: val_auc

@@ -20,11 +20,12 @@ class Trainer:
             if pos_weight else None
         self.criterion = nn.BCEWithLogitsLoss(pos_weight=pw)
 
-        self.best_score  = -float("inf")
-        self.best_metric = cfg["output"]["save_best_metric"]
         self.weights_dir = Path(cfg["output"]["weights_dir"])
         self.exp_name    = cfg["experiment"]["name"]
         self.weights_dir.mkdir(parents=True, exist_ok=True)
+
+        self.best_auc  = -float("inf")
+        self.best_loss =  float("inf")
 
     def train_epoch(self, loader) -> dict:
         self.model.train()
@@ -97,16 +98,24 @@ class Trainer:
             "val_subset": subset,
         }
 
-    def save_best(self, metrics: dict, epoch: int):
-        score = metrics.get(self.best_metric, 0.0)
-        if self.best_metric == "val_loss":
-            score = -score
+    def save_best(self, metrics: dict):
+        auc  = metrics.get("val_auc",  0.0)
+        loss = metrics.get("val_loss", float("inf"))
 
-        if score > self.best_score:
-            self.best_score = score
-            path = self.weights_dir / f"{self.exp_name}_best.pth"
+        if auc > self.best_auc:
+            self.best_auc = auc
+            path = self.weights_dir / f"{self.exp_name}_best_auc.pth"
             torch.save(self.model.state_dict(), path)
-            print(f"  [SAVED] best {self.best_metric}={score:.4f} → {path.name}")
+            print(f"  [SAVED] best_auc={auc:.4f} → {path.name}")
+
+        if loss < self.best_loss:
+            self.best_loss = loss
+            path = self.weights_dir / f"{self.exp_name}_best_loss.pth"
+            torch.save(self.model.state_dict(), path)
+            print(f"  [SAVED] best_loss={loss:.4f} → {path.name}")
+
+        path = self.weights_dir / f"{self.exp_name}_latest.pth"
+        torch.save(self.model.state_dict(), path)
 
     def step_scheduler(self, metrics: dict):
         if self.scheduler is None:

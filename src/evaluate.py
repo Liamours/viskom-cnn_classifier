@@ -120,6 +120,35 @@ def save_metrics_summary(labels, probs, preds, out_dir: Path, exp_name: str):
     print(f"Saved: {path}")
 
 
+CHECKPOINTS = ["best_auc", "best_loss", "latest"]
+
+
+def evaluate_checkpoint(model, ckpt_name: str, cfg: dict,
+                         loader, device, out_dir: Path):
+    exp      = cfg["experiment"]["name"]
+    ckpt_file = f"{exp}_{ckpt_name}.pth"
+    ckpt_path = Path(cfg["output"]["weights_dir"]) / ckpt_file
+
+    if not ckpt_path.exists():
+        print(f"  [SKIP] {ckpt_file} not found")
+        return
+
+    state_dict = torch.load(ckpt_path, map_location=device)
+    model.load_state_dict(state_dict)
+    print(f"\n{'='*52}")
+    print(f"  Checkpoint : {ckpt_name}  ({ckpt_file})")
+    print(f"{'='*52}")
+
+    sub_dir = out_dir / ckpt_name
+    sub_dir.mkdir(parents=True, exist_ok=True)
+    tag = f"{exp}_{ckpt_name}"
+
+    labels, probs, preds = run_inference(model, loader, device)
+    save_metrics_summary(labels, probs, preds, sub_dir, tag)
+    save_classification_report(labels, preds, sub_dir, tag)
+    save_confusion_matrices(labels, preds, sub_dir, tag)
+
+
 def main(config_path: str):
     cfg    = load_config(config_path)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -128,7 +157,7 @@ def main(config_path: str):
     out_dir = Path("results") / "evaluation" / exp
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    dcfg = cfg["data"]
+    dcfg    = cfg["data"]
     test_ds = ChestMNISTDataset("test", dcfg["processed_dir"], dcfg["input_size"])
     loader  = DataLoader(
         test_ds, batch_size=dcfg["batch_size"] * 2,
@@ -137,18 +166,14 @@ def main(config_path: str):
         persistent_workers=dcfg["num_workers"] > 0,
     )
 
-    model      = build_model(cfg).to(device)
-    best_path  = Path(cfg["output"]["weights_dir"]) / f"{exp}_best.pth"
-    state_dict = torch.load(best_path, map_location=device)
-    model.load_state_dict(state_dict)
-    print(f"Loaded: {best_path}")
+    print(f"Device     : {device}")
+    print(f"Experiment : {exp}")
+    print(f"Test set   : {len(test_ds):,} images")
 
-    print(f"\nRunning inference on {len(test_ds):,} test images...")
-    labels, probs, preds = run_inference(model, loader, device)
+    model = build_model(cfg).to(device)
 
-    save_metrics_summary(labels, probs, preds, out_dir, exp)
-    save_classification_report(labels, preds, out_dir, exp)
-    save_confusion_matrices(labels, preds, out_dir, exp)
+    for ckpt_name in CHECKPOINTS:
+        evaluate_checkpoint(model, ckpt_name, cfg, loader, device, out_dir)
 
     print(f"\nAll outputs saved to: {out_dir}")
 
