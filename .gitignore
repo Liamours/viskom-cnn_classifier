@@ -28,3 +28,10 @@ Thumbs.db
 
 # MedMNIST cache
 ~/.medmnist/
+
+# Word temp/lock files
+~$*
+
+# Reference PDFs and Excel in report (large binary, not source)
+report/*.pdf
+report/*.xlsx

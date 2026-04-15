@@ -13,16 +13,27 @@ SPLITS   = ["train", "val", "test"]
 TARGET   = 5000
 WORKERS  = 8
 
-MEAN = (0.485, 0.456, 0.406)
-STD  = (0.229, 0.224, 0.225)
 
 
 # ── Augmentation ────────────────────────────────────────────────────────────
 
-def augment(img: Image.Image) -> Image.Image:
-    if random.random() < 0.5:
-        img = img.transpose(Image.FLIP_LEFT_RIGHT)
+def cutout(img: Image.Image,
+           min_ratio: float = 0.05,
+           max_ratio: float = 0.20,
+           fill: int = 128) -> Image.Image:
+    arr    = np.array(img).copy()
+    h, w   = arr.shape[:2]
+    ch     = random.uniform(min_ratio, max_ratio)
+    cw     = random.uniform(min_ratio, max_ratio)
+    cut_h  = int(h * ch)
+    cut_w  = int(w * cw)
+    y      = random.randint(0, h - cut_h)
+    x      = random.randint(0, w - cut_w)
+    arr[y:y + cut_h, x:x + cut_w] = fill
+    return Image.fromarray(arr)
 
+
+def augment(img: Image.Image) -> Image.Image:
     if random.random() < 0.5:
         angle = random.uniform(-10, 10)
         img = img.rotate(angle, resample=Image.BILINEAR, fillcolor=(128, 128, 128))
@@ -33,10 +44,13 @@ def augment(img: Image.Image) -> Image.Image:
 
     if random.random() < 0.5:
         arr   = np.array(img).astype(np.float32)
-        alpha = random.uniform(0.8, 1.2)   # contrast
-        beta  = random.uniform(-20, 20)    # brightness
+        alpha = random.uniform(0.8, 1.2)
+        beta  = random.uniform(-20, 20)
         arr   = np.clip(alpha * arr + beta, 0, 255).astype(np.uint8)
         img   = Image.fromarray(arr)
+
+    if random.random() < 0.5:
+        img = cutout(img, fill=128)
 
     return img
 
