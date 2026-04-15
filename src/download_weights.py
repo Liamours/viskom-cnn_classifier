@@ -11,12 +11,12 @@ WEIGHTS_DIR = os.path.join(os.path.dirname(__file__), "..", "models", "weights")
 os.makedirs(WEIGHTS_DIR, exist_ok=True)
 
 MODELS = {
-    "mobilenetv3":  "mobilenetv3_large_100",
-    "convnextv2":   "convnextv2_base.fcmae_ft_in22k_in1k",
-    "efficientnetv2": "tf_efficientnetv2_b0",
+    "mobilenetv4": "mobilenetv4_conv_medium.e500_r224_in1k",
+    "efficientnet": "efficientnet_b0.ra4_e3600_r224_in1k",
+    "ghostnetv3":  "ghostnetv3_100.in1k",
 }
 
-NUM_CLASSES = 5  # change to match your dataset
+NUM_CLASSES = 14
 
 
 def download_and_save(name: str, timm_id: str, num_classes: int):
