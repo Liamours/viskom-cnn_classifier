@@ -135,22 +135,22 @@ Normalisasi dilakukan \textit{at runtime} (bukan pada disk) menggunakan statisti
 
 \section{Model}
 
-Tiga arsitektur dipilih untuk mewakili spektrum desain CNN modern yang berbeda secara fundamental. \textbf{MobileNetV4-Conv-Medium} (\texttt{mobilenetv4\_conv\_medium}) memperkenalkan blok \textit{Universal Inverted Bottleneck} (UIB) yang menyatukan desain depthwise-pointwise dengan fleksibilitas skip connection adaptif, dilatih selama 500 epoch dengan distilasi pengetahuan. \textbf{EfficientNetV2-S} (\texttt{efficientnetv2\_s}) menggunakan blok \textit{Fused-MBConv} pada stage awal yang menggabungkan expansion dan depthwise conv menjadi satu konvolusi reguler, beralih ke MBConv dengan Squeeze-and-Excitation pada stage yang lebih dalam. Model ini juga memanfaatkan pretraining dua tahap (ImageNet-21K lalu fine-tune ImageNet-1K) yang secara teori memberinya representasi fitur lebih kaya. \textbf{GhostNetV3} (\texttt{ghostnetv3\_100}) memperkenalkan \textit{Ghost modules} yang menghasilkan feature map tambahan via operasi linear murah (depthwise conv) dari feature map utama, secara signifikan mengurangi FLOPs tanpa kehilangan kapasitas representasi.
+Tiga arsitektur dipilih untuk mewakili spektrum desain CNN modern yang berbeda secara fundamental. \textbf{MobileNetV4-Conv-Medium} (\texttt{mobilenetv4\_conv\_medium}) memperkenalkan blok \textit{Universal Inverted Bottleneck} (UIB) yang menyatukan desain depthwise-pointwise dengan fleksibilitas skip connection adaptif, dilatih selama 500 epoch dengan distilasi pengetahuan. \textbf{EfficientNetV2-RW-T} (\texttt{efficientnetv2\_rw\_t}) adalah varian \textit{tiny} dari EfficientNetV2 yang dirancang oleh Ross Wightman dengan input natif $224\times224$. Menggunakan blok \textit{Fused-MBConv} pada stage awal yang menggabungkan expansion dan depthwise conv menjadi satu konvolusi reguler, beralih ke MBConv dengan Squeeze-and-Excitation pada stage yang lebih dalam. Dilatih dengan RandAugment v2 pada ImageNet-1K. \textbf{GhostNetV3} (\texttt{ghostnetv3\_100}) memperkenalkan \textit{Ghost modules} yang menghasilkan feature map tambahan via operasi linear murah (depthwise conv) dari feature map utama, secara signifikan mengurangi FLOPs tanpa kehilangan kapasitas representasi.
 
 \begin{center}
 \captionof{table}{Properti Arsitektur Model}
 \small
 \begin{tabular}{lccc}
 \toprule
-\textbf{Property} & \textbf{MobNetV4} & \textbf{EffNetV2-S} & \textbf{GhostV3} \\
+\textbf{Property} & \textbf{MobNetV4} & \textbf{EffNetV2-RW-T} & \textbf{GhostV3} \\
 \midrule
-Parameters     & 8.45M  & 21.5M   & 7.4M   \\
+Parameters     & 8.44M   & 12.63M  & 6.86M  \\
 Input Size     & $224^2$ & $224^2$ & $224^2$ \\
-Stem Stride    & 2      & 2       & 2      \\
-Norm.          & BN     & BN      & BN     \\
-Activation     & ReLU   & SiLU    & ReLU   \\
-Channel Mech.  & UIB    & SE      & Ghost  \\
-Pretrain       & IN-1K  & IN-21K+1K & IN-1K \\
+Stem Stride    & 2       & 2       & 2      \\
+Norm.          & BN      & BN      & BN     \\
+Activation     & ReLU    & SiLU    & ReLU   \\
+Channel Mech.  & UIB     & SE      & Ghost  \\
+Pretrain       & IN-1K   & IN-1K   & IN-1K  \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -169,7 +169,7 @@ Metrik evaluasi yang digunakan: \textit{Accuracy} (top-1), \textit{F1-score} (ma
 \textbf{Model} & \textbf{AUC-ROC} & \textbf{Accuracy} & \textbf{F1 (macro)} \\
 \midrule
 MobileNetV4    & -- & -- & -- \\
-EfficientNetV2-S & -- & -- & -- \\
+EfficientNetV2-RW-T & -- & -- & -- \\
 GhostNetV3     & -- & -- & -- \\
 \bottomrule
 \end{tabular}

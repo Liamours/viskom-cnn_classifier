@@ -4,7 +4,7 @@ experiment:
 
 model:
   name: efficientnetv2
-  timm_id: efficientnetv2_s.in21k_ft_in1k
+  timm_id: efficientnetv2_rw_t.ra2_in1k
   num_classes: 8
   pretrained_weights: models/weights/efficientnetv2.pth
 

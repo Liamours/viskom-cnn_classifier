@@ -14,7 +14,7 @@ os.makedirs(WEIGHTS_DIR, exist_ok=True)
 
 MODELS = {
     "mobilenetv4":   "mobilenetv4_conv_medium.e500_r224_in1k",
-    "efficientnetv2": "efficientnetv2_s.in21k_ft_in1k",
+    "efficientnetv2": "efficientnetv2_rw_t.ra2_in1k",
     "ghostnetv3":    "ghostnetv3_100.in1k",
 }
 
