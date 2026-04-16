@@ -4,6 +4,8 @@ Saves state_dicts to models/weights/.
 """
 
 import os
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
 import timm
 import torch
 
