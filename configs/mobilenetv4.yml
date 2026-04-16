@@ -9,17 +9,17 @@ model:
   pretrained_weights: models/weights/mobilenetv4.pth
 
 finetune:
-  enabled: false
-  unfreeze_ratio: 0.0
+  enabled: true
+  unfreeze_ratio: 0.25
 
 data:
   processed_dir: data/processed
   input_size: 224
-  batch_size: 32
-  num_workers: 4
+  batch_size: 16
+  num_workers: 8
 
 training:
-  epochs: 30
+  epochs: 50
   lr: 1.0e-4
   weight_decay: 1.0e-4
   optimizer: adamw
