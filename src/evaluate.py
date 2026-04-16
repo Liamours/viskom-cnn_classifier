@@ -3,7 +3,6 @@ import yaml
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 from pathlib import Path
 from torch.utils.data import DataLoader
 from sklearn.metrics import (
@@ -21,18 +20,43 @@ def load_config(path: str) -> dict:
 
 
 @torch.no_grad()
-def run_inference(model, loader, device) -> tuple[np.ndarray, np.ndarray]:
+def _collect_probs(model, loader, device):
+    """Run forward pass — return (labels, probs) as numpy arrays."""
     model.eval()
     all_logits, all_labels = [], []
     for imgs, labels in loader:
-        imgs   = imgs.to(device, non_blocking=True)
-        logits = model(imgs)
-        all_logits.append(logits.cpu())
+        imgs = imgs.to(device, non_blocking=True)
+        all_logits.append(model(imgs).cpu())
         all_labels.append(labels)
-    logits = torch.cat(all_logits).numpy()
+    logits = np.clip(torch.cat(all_logits).numpy(), -500, 500)
     labels = torch.cat(all_labels).numpy()
     probs  = 1 / (1 + np.exp(-logits))
-    preds  = (probs >= 0.5).astype(int)
+    return labels, probs
+
+
+def find_optimal_thresholds(model, val_loader, device,
+                             n_steps: int = 50) -> np.ndarray:
+    """Per-class threshold that maximises F1 on validation set."""
+    labels, probs = _collect_probs(model, val_loader, device)
+    candidates    = np.linspace(0.05, 0.95, n_steps)
+    best_t        = np.full(probs.shape[1], 0.5)
+
+    for i in range(probs.shape[1]):
+        best_f1 = -1.0
+        for t in candidates:
+            f1 = f1_score(labels[:, i], (probs[:, i] >= t).astype(int),
+                          zero_division=0)
+            if f1 > best_f1:
+                best_f1, best_t[i] = f1, t
+    return best_t
+
+
+def run_inference(model, loader, device,
+                  thresholds: np.ndarray | None = None):
+    labels, probs = _collect_probs(model, loader, device)
+    if thresholds is None:
+        thresholds = np.full(probs.shape[1], 0.5)
+    preds = (probs >= thresholds).astype(int)
     return labels, probs, preds
 
 
@@ -61,7 +85,7 @@ def save_confusion_matrices(labels, preds, out_dir: Path, exp_name: str):
     for i, label_name in enumerate(LABEL_COLS):
         cm  = confusion_matrix(labels[:, i], preds[:, i])
         ax  = axes[i]
-        im  = ax.imshow(cm, interpolation="nearest", cmap="Blues")
+        ax.imshow(cm, interpolation="nearest", cmap="Blues")
         ax.set_title(label_name, fontsize=9, fontweight="bold")
         ax.set_xticks([0, 1]); ax.set_yticks([0, 1])
         ax.set_xticklabels(["Neg", "Pos"], fontsize=8)
@@ -73,7 +97,8 @@ def save_confusion_matrices(labels, preds, out_dir: Path, exp_name: str):
             for col in range(cm.shape[1]):
                 ax.text(col, row, str(cm[row, col]),
                         ha="center", va="center",
-                        fontsize=9, color="white" if cm[row, col] > cm.max() / 2 else "black")
+                        fontsize=9,
+                        color="white" if cm[row, col] > cm.max() / 2 else "black")
 
     for j in range(i + 1, len(axes)):
         axes[j].axis("off")
@@ -86,7 +111,8 @@ def save_confusion_matrices(labels, preds, out_dir: Path, exp_name: str):
     print(f"Saved: {path}")
 
 
-def save_metrics_summary(labels, probs, preds, out_dir: Path, exp_name: str):
+def save_metrics_summary(labels, probs, preds, thresholds,
+                         out_dir: Path, exp_name: str):
     try:
         auc = roc_auc_score(labels, probs, average="macro")
     except ValueError:
@@ -102,14 +128,14 @@ def save_metrics_summary(labels, probs, preds, out_dir: Path, exp_name: str):
         f"F1 (macro)         : {f1:.4f}",
         f"Hamming accuracy   : {ham:.4f}",
         f"Subset accuracy    : {subset:.4f}",
-        f"\nPer-label AUC-ROC:",
+        f"\nPer-label AUC-ROC  (threshold used):",
     ]
     for i, name in enumerate(LABEL_COLS):
         try:
             per_auc = roc_auc_score(labels[:, i], probs[:, i])
         except ValueError:
             per_auc = 0.0
-        lines.append(f"  {name:<20} {per_auc:.4f}")
+        lines.append(f"  {name:<20} AUC={per_auc:.4f}  t={thresholds[i]:.2f}")
 
     summary = "\n".join(lines)
     print("\n── Metrics Summary ──────────────────────────────")
@@ -124,8 +150,8 @@ CHECKPOINTS = ["best_auc", "best_loss", "latest"]
 
 
 def evaluate_checkpoint(model, ckpt_name: str, cfg: dict,
-                         loader, device, out_dir: Path):
-    exp      = cfg["experiment"]["name"]
+                        test_loader, val_loader, device, out_dir: Path):
+    exp       = cfg["experiment"]["name"]
     ckpt_file = f"{exp}_{ckpt_name}.pth"
     ckpt_path = Path(cfg["output"]["weights_dir"]) / ckpt_file
 
@@ -139,12 +165,17 @@ def evaluate_checkpoint(model, ckpt_name: str, cfg: dict,
     print(f"  Checkpoint : {ckpt_name}  ({ckpt_file})")
     print(f"{'='*52}")
 
+    print("  Finding optimal thresholds on val set...")
+    thresholds = find_optimal_thresholds(model, val_loader, device)
+    for name, t in zip(LABEL_COLS, thresholds):
+        print(f"    {name:<20} t={t:.2f}")
+
     sub_dir = out_dir / ckpt_name
     sub_dir.mkdir(parents=True, exist_ok=True)
     tag = f"{exp}_{ckpt_name}"
 
-    labels, probs, preds = run_inference(model, loader, device)
-    save_metrics_summary(labels, probs, preds, sub_dir, tag)
+    labels, probs, preds = run_inference(model, test_loader, device, thresholds)
+    save_metrics_summary(labels, probs, preds, thresholds, sub_dir, tag)
     save_classification_report(labels, preds, sub_dir, tag)
     save_confusion_matrices(labels, preds, sub_dir, tag)
 
@@ -157,23 +188,33 @@ def main(config_path: str):
     out_dir = Path("results") / "evaluation" / exp
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    dcfg    = cfg["data"]
+    dcfg = cfg["data"]
+    nw   = dcfg["num_workers"]
+
+    val_ds = ChestMNISTDataset("val", dcfg["processed_dir"], dcfg["input_size"])
+    val_loader = DataLoader(
+        val_ds, batch_size=dcfg["batch_size"] * 2,
+        shuffle=False, num_workers=nw, pin_memory=True,
+        persistent_workers=nw > 0,
+    )
+
     test_ds = ChestMNISTDataset("test", dcfg["processed_dir"], dcfg["input_size"])
-    loader  = DataLoader(
+    test_loader = DataLoader(
         test_ds, batch_size=dcfg["batch_size"] * 2,
-        shuffle=False, num_workers=dcfg["num_workers"],
-        pin_memory=True,
-        persistent_workers=dcfg["num_workers"] > 0,
+        shuffle=False, num_workers=nw, pin_memory=True,
+        persistent_workers=nw > 0,
     )
 
     print(f"Device     : {device}")
     print(f"Experiment : {exp}")
+    print(f"Val set    : {len(val_ds):,} images")
     print(f"Test set   : {len(test_ds):,} images")
 
     model = build_model(cfg).to(device)
 
     for ckpt_name in CHECKPOINTS:
-        evaluate_checkpoint(model, ckpt_name, cfg, loader, device, out_dir)
+        evaluate_checkpoint(model, ckpt_name, cfg,
+                            test_loader, val_loader, device, out_dir)
 
     print(f"\nAll outputs saved to: {out_dir}")
 

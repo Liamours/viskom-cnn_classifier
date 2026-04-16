@@ -29,6 +29,15 @@ def set_seed(seed: int):
     torch.cuda.manual_seed_all(seed)
 
 
+def compute_pos_weight(dataset) -> list:
+    """Compute per-class pos_weight = n_neg / n_pos from training labels."""
+    labels = dataset.labels                        # [N, 14] float32
+    n_pos  = labels.sum(dim=0)                     # [14]
+    n_neg  = len(dataset) - n_pos                  # [14]
+    pw     = (n_neg / n_pos.clamp(min=1.0)).tolist()
+    return pw
+
+
 def build_optimizer(model, cfg: dict):
     tcfg = cfg["training"]
     params = filter(lambda p: p.requires_grad, model.parameters())
@@ -103,6 +112,12 @@ def main(config_path: str):
         num_workers=nw, pin_memory=True,
         persistent_workers=nw > 0, prefetch_factor=4 if nw > 0 else None,
     )
+
+    # compute pos_weight from train labels (overrides yaml if null)
+    if not cfg["training"].get("pos_weight"):
+        pw = compute_pos_weight(train_ds)
+        cfg["training"]["pos_weight"] = pw
+        print(f"pos_weight computed — min={min(pw):.1f}  max={max(pw):.1f}\n")
 
     model     = build_model(cfg).to(device)
     optimizer = build_optimizer(model, cfg)
