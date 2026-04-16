@@ -1,19 +1,29 @@
+"""
+EDA on raw downloaded data (data/raw/).
+Verifies counts, finds duplicates, plots class/pixel/size distributions.
+Outputs → results/figures/eda_raw/
+"""
+
 import hashlib
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from PIL import Image
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
 RAW_DIR = Path(__file__).parent.parent / "data" / "raw"
-OUT_DIR = Path(__file__).parent.parent / "results" / "figures" / "eda"
+OUT_DIR = Path(__file__).parent.parent / "results" / "figures" / "eda_raw"
 SPLITS  = ["train", "val", "test"]
 WORKERS = 8
 
-EXPECTED = {"train": 78468, "val": 11219, "test": 22433, "total": 112120}
+EXPECTED = {"train": 11959, "val": 1712, "test": 3421, "total": 17092}
+
+CLASS_NAMES = [
+    "basophil", "eosinophil", "erythroblast", "ig",
+    "lymphocyte", "monocyte", "neutrophil", "platelet",
+]
 
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -21,14 +31,13 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 def load_csvs() -> pd.DataFrame:
     frames = []
     for split in SPLITS:
-        csv_path = RAW_DIR / f"{split}.csv"
-        df = pd.read_csv(csv_path)
+        df = pd.read_csv(RAW_DIR / f"{split}.csv")
         frames.append(df)
     return pd.concat(frames, ignore_index=True)
 
 
 def verify_dataset(df: pd.DataFrame):
-    lines = ["=== Dataset Verification vs Official ChestMNIST ===\n"]
+    lines = ["=== Dataset Verification vs Official BloodMNIST ===\n"]
     lines.append(f"{'Split':<8} {'Expected':>10} {'Actual':>10} {'Match':>8}")
     lines.append("-" * 42)
 
@@ -92,46 +101,21 @@ def report_duplicates(dupes: dict[str, list[str]]):
         print(f"Duplicates: {len(dupes)} group(s) — see {path}")
 
 
-def plot_label_distribution(df: pd.DataFrame):
-    label_cols = [c for c in df.columns if c not in
-                  ["filename", "split", "active_labels", "label_count",
-                   "width", "height", "channels", "mean", "std"]]
-
-    fig, axes = plt.subplots(1, len(SPLITS), figsize=(24, 8), sharey=False)
-    fig.suptitle("Label Distribution per Split (multi-label counts)", fontsize=14)
+def plot_class_distribution(df: pd.DataFrame):
+    fig, axes = plt.subplots(1, len(SPLITS), figsize=(18, 6), sharey=False)
+    fig.suptitle("Class Distribution per Split — Raw (BloodMNIST)", fontsize=14)
 
     for ax, split in zip(axes, SPLITS):
-        sub   = df[df["split"] == split][label_cols]
-        counts = sub.sum().sort_values()
-        counts.plot.barh(ax=ax)
+        sub    = df[df["split"] == split]
+        counts = sub["class_name"].value_counts().reindex(CLASS_NAMES, fill_value=0)
+        bars   = counts.plot.barh(ax=ax)
         ax.set_title(split)
         ax.set_xlabel("Image count")
         for i, v in enumerate(counts):
-            ax.text(v + 10, i, str(int(v)), va="center", fontsize=7)
+            ax.text(v + 2, i, str(int(v)), va="center", fontsize=8)
 
     plt.tight_layout()
-    path = OUT_DIR / "label_distribution.png"
-    plt.savefig(path, dpi=150, bbox_inches="tight")
-    plt.close()
-    print(f"Saved: {path}")
-
-
-def plot_label_count_distribution(df: pd.DataFrame):
-    fig, axes = plt.subplots(1, len(SPLITS), figsize=(18, 5))
-    fig.suptitle("Labels per Image Distribution (0 = no_finding)", fontsize=14)
-
-    for ax, split in zip(axes, SPLITS):
-        sub = df[df["split"] == split]["label_count"]
-        unique, counts = np.unique(sub, return_counts=True)
-        ax.bar([str(u) for u in unique], counts)
-        ax.set_title(split)
-        ax.set_xlabel("Number of active labels")
-        ax.set_ylabel("Image count")
-        for i, c in enumerate(counts):
-            ax.text(i, c + 10, str(c), ha="center", fontsize=7)
-
-    plt.tight_layout()
-    path = OUT_DIR / "label_count_distribution.png"
+    path = OUT_DIR / "class_distribution.png"
     plt.savefig(path, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"Saved: {path}")
@@ -139,14 +123,13 @@ def plot_label_count_distribution(df: pd.DataFrame):
 
 def plot_size_channel_distribution(df: pd.DataFrame):
     fig, axes = plt.subplots(3, len(SPLITS), figsize=(18, 12))
-    fig.suptitle("Image Size & Channel Distribution", fontsize=14)
+    fig.suptitle("Image Size & Channel Distribution — Raw", fontsize=14)
     metrics = [("width", "Width (px)"), ("height", "Height (px)"), ("channels", "Channels")]
 
     for col, split in enumerate(SPLITS):
         sub = df[df["split"] == split]
         for row, (key, label) in enumerate(metrics):
-            vals = sub[key]
-            unique, counts = np.unique(vals, return_counts=True)
+            unique, counts = np.unique(sub[key], return_counts=True)
             axes[row][col].bar([str(u) for u in unique], counts)
             axes[row][col].set_title(f"{split} — {label}")
             axes[row][col].set_xlabel(label)
@@ -161,19 +144,17 @@ def plot_size_channel_distribution(df: pd.DataFrame):
 
 def plot_pixel_distribution(df: pd.DataFrame):
     fig, axes = plt.subplots(2, len(SPLITS), figsize=(18, 10))
-    fig.suptitle("Pixel Value Distribution (per-image Mean & Std)", fontsize=14)
+    fig.suptitle("Pixel Value Distribution (per-image Mean & Std) — Raw", fontsize=14)
 
     for col, split in enumerate(SPLITS):
         sub = df[df["split"] == split]
         axes[0][col].hist(sub["mean"], bins=60, edgecolor="none")
         axes[0][col].set_title(f"{split} — Pixel Mean")
-        axes[0][col].set_xlabel("Mean")
-        axes[0][col].set_ylabel("Count")
+        axes[0][col].set_xlabel("Mean"); axes[0][col].set_ylabel("Count")
 
         axes[1][col].hist(sub["std"], bins=60, edgecolor="none", color="orange")
         axes[1][col].set_title(f"{split} — Pixel Std")
-        axes[1][col].set_xlabel("Std")
-        axes[1][col].set_ylabel("Count")
+        axes[1][col].set_xlabel("Std"); axes[1][col].set_ylabel("Count")
 
     plt.tight_layout()
     path = OUT_DIR / "pixel_distribution.png"
@@ -183,7 +164,7 @@ def plot_pixel_distribution(df: pd.DataFrame):
 
 
 if __name__ == "__main__":
-    print("Loading CSVs...")
+    print("Loading raw CSVs...")
     df = load_csvs()
     print(f"Total records: {len(df)}\n")
 
@@ -194,9 +175,9 @@ if __name__ == "__main__":
     dupes = find_duplicates(df)
     report_duplicates(dupes)
 
-    print("\nPlotting EDA...")
-    plot_label_distribution(df)
-    plot_label_count_distribution(df)
+    print("\nPlotting EDA (raw)...")
+    plot_class_distribution(df)
+    plot_size_channel_distribution(df)
     plot_pixel_distribution(df)
 
-    print("\nDone. All outputs -> results/figures/eda/")
+    print(f"\nDone. All outputs → {OUT_DIR}")

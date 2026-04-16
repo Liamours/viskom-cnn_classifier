@@ -1,0 +1,191 @@
+\documentclass[10pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{multicol}
+\usepackage{caption}
+
+\title{\textbf{Project Report: BloodMNIST Classification with Efficient CNN Backbones}}
+\author{
+  M. Rifqi Dzaky Azhad \quad Fathan Arya Maulana \quad Nabila Putri Azhari\\
+  S1 Informatika, Fakultas Informatika, Telkom University, Bandung, Indonesia
+}
+\date{}
+
+\begin{document}
+\maketitle
+\begin{multicols}{2}
+
+\section{Dataset}
+
+BloodMNIST adalah bagian dari koleksi MedMNIST v2. Dataset ini terdiri dari citra mikroskop sel darah dengan task \textit{multi-class classification} sebanyak 8 kelas. Total 17,092 citra dibagi menggunakan split resmi dari MedMNIST. Seluruh citra berukuran $224 \times 224$ piksel dengan tiga channel (RGB), dan tidak ternormalisasi pada disk.
+
+\begin{center}
+\captionof{table}{Spesifikasi Dataset}
+\small
+\begin{tabular}{lp{4.5cm}}
+\toprule
+\textbf{Fitur} & \textbf{Detail} \\
+\midrule
+Nama Dataset     & BloodMNIST (MedMNIST v2) \\
+Sumber           & HuggingFace: danjacobellis/bloodmnist\_224 \\
+Modalitas        & Blood Cell Microscope (RGB) \\
+Task             & Multi-Class Classification (8 kelas) \\
+Total Data       & 17,092 \\
+Split            & Train: 11,959 / Val: 1,712 / Test: 3,421 \\
+Dimensi Data     & $224 \times 224$ \\
+Channels         & 3 (RGB) \\
+Statistik Piksel & Tidak dinormalisasi pada disk \\
+Duplikasi        & 17 Grup Duplikat \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Delapan kelas pada BloodMNIST mencakup: \texttt{basophil}, \texttt{eosinophil}, \texttt{erythroblast}, \texttt{ig} (immature granulocyte), \texttt{lymphocyte}, \texttt{monocyte}, \texttt{neutrophil}, dan \texttt{platelet}.
+
+\section{Data Preparation dan EDA}
+
+Duplikasi dataset dicek menggunakan algoritma hashing (MD5) untuk mencari gambar yang identik secara piksel. Ditemukan 17 grup duplikat, seluruhnya memiliki dua gambar identik, sehingga tepat 17 gambar dihapus dari dataset. Aturan penghapusan mengikuti prioritas \texttt{train > val > test}; bila dua citra identik berada di split berbeda, yang di split berprioritas lebih rendah dihapus. Dalam split yang sama, indeks filename terkecil yang dipertahankan.
+
+\begin{center}
+\captionof{table}{Dataset Setelah Deduplikasi}
+\small
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Split} & \textbf{Sebelum} & \textbf{Dihapus} & \textbf{Sesudah} \\
+\midrule
+Train & 11,959 &  8 & 11,951 \\
+Val   &  1,712 &  3 &  1,709 \\
+Test  &  3,421 &  6 &  3,415 \\
+\textbf{Total} & \textbf{17,092} & \textbf{17} & \textbf{17,075} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Distribusi piksel per-split divisualisasikan pada Gambar~1. Nilai mean per citra mayoritas berkisar antara 0.6--0.8 (skala [0,1]), mencerminkan latar belakang terang khas citra mikroskop darah. Pola ini konsisten di ketiga split, menandakan tidak ada bias distribusi antar split.
+
+\begin{center}
+    \includegraphics[width=0.45\textwidth]{../results/figures/eda_raw/pixel_distribution.png}
+    \captionof{figure}{Distribusi Pixel Intensity (Raw).}
+\end{center}
+
+\section{Exploratory Analysis}
+
+EDA dilakukan untuk melihat distribusi kelas pada dataset. Terdapat ketidakseimbangan kelas (\textit{class imbalance}) pada split train: kelas \texttt{neutrophil} memiliki jumlah terbanyak (2,330 sampel) sedangkan \texttt{lymphocyte} (849) dan \texttt{basophil} (850) paling sedikit, rasio terbesar sekitar 2.7$\times$.
+
+Distribusi per-split memperlihatkan proporsi kelas yang konsisten, menunjukkan tidak ada bias distribusi antar split yang dapat menggangu evaluasi.
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=0.8\textwidth]{../results/figures/eda_raw/class_distribution.png}
+    \caption{Distribusi kelas per split (raw).}
+\end{figure*}
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=0.8\textwidth]{../results/figures/eda_preprocessed/class_distribution_comparison.png}
+    \caption{Perbandingan distribusi kelas sebelum dan sesudah augmentasi (train).}
+\end{figure*}
+
+\section{Augmentation}
+
+Augmentasi dilakukan untuk menyeimbangkan distribusi kelas dan meningkatkan kemampuan generalisasi model. Target per kelas ditetapkan 2,000 citra; kelas yang sudah melebihi target tidak diaugmentasi. Augmentasi hanya diterapkan pada split \textit{train}; split \textit{val} dan \textit{test} disalin apa adanya agar evaluasi mencerminkan data nyata.
+
+\textit{Horizontal flip} diizinkan karena sel darah tidak memiliki orientasi anatomis yang kritis, berbeda dengan citra medis seperti X-ray dada. Rotasi dibatasi $\pm15^\circ$ untuk menghindari deformasi ekstrem. Cutout menggunakan fill value 128 (mid-gray) untuk meminimalkan distribusi shift.
+
+\begin{center}
+\captionof{table}{Strategi Augmentation (Train Only)}
+\small
+\begin{tabular}{lp{2.8cm}r}
+\toprule
+\textbf{Transform} & \textbf{Parameter} & \textbf{Prob.} \\
+\midrule
+Horizontal Flip     & ---                                                & 0.50 \\
+Rotation            & $\pm15^\circ$, bilinear, fill=128                  & 0.50 \\
+Gaussian Blur       & radius $\in \{1.0, 1.5, 2.0\}$                    & 0.30 \\
+Brightness/Contrast & $\alpha\!\in\![0.8,1.2]$, $\beta\!\pm\!20$        & 0.50 \\
+Cutout              & 5--20\% of image, fill=128                        & 0.50 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{center}
+\captionof{table}{Ringkasan Dataset Setelah Augmentasi}
+\small
+\begin{tabular}{lr}
+\toprule
+\textbf{Metrik} & \textbf{Jumlah} \\
+\midrule
+Original train images   & 11{,}951  \\
+Augmented images        &  4{,}581  \\
+Total processed train   & 16{,}532 \\
+Val images (unchanged)  &  1{,}709  \\
+Test images (unchanged) &  3{,}415  \\
+\textbf{Grand total}    & \textbf{21{,}656} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Normalisasi}
+
+Normalisasi dilakukan \textit{at runtime} (bukan pada disk) menggunakan statistik ImageNet: mean $= [0.485, 0.456, 0.406]$, std $= [0.229, 0.224, 0.225]$. Statistik aktual BloodMNIST (mean $= [0.796, 0.660, 0.696]$, std $= [0.226, 0.260, 0.096]$) tidak digunakan karena layer konvolusi awal backbone yang dibekukan (\textit{frozen}) dilatih dengan distribusi ImageNet; mengubah statistik normalisasi akan menyebabkan distribusi input tidak sesuai ekspektasi layer tersebut.
+
+\section{Model}
+
+Tiga arsitektur dipilih untuk mewakili spektrum desain CNN modern yang berbeda secara fundamental. \textbf{MobileNetV4-Conv-Medium} (\texttt{mobilenetv4\_conv\_medium}) memperkenalkan blok \textit{Universal Inverted Bottleneck} (UIB) yang menyatukan desain depthwise-pointwise dengan fleksibilitas skip connection adaptif, dilatih selama 500 epoch dengan distilasi pengetahuan. \textbf{EfficientNetV2-S} (\texttt{efficientnetv2\_s}) menggunakan blok \textit{Fused-MBConv} pada stage awal yang menggabungkan expansion dan depthwise conv menjadi satu konvolusi reguler, beralih ke MBConv dengan Squeeze-and-Excitation pada stage yang lebih dalam. Model ini juga memanfaatkan pretraining dua tahap (ImageNet-21K lalu fine-tune ImageNet-1K) yang secara teori memberinya representasi fitur lebih kaya. \textbf{GhostNetV3} (\texttt{ghostnetv3\_100}) memperkenalkan \textit{Ghost modules} yang menghasilkan feature map tambahan via operasi linear murah (depthwise conv) dari feature map utama, secara signifikan mengurangi FLOPs tanpa kehilangan kapasitas representasi.
+
+\begin{center}
+\captionof{table}{Properti Arsitektur Model}
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Property} & \textbf{MobNetV4} & \textbf{EffNetV2-S} & \textbf{GhostV3} \\
+\midrule
+Parameters     & 8.45M  & 21.5M   & 7.4M   \\
+Input Size     & $224^2$ & $224^2$ & $224^2$ \\
+Stem Stride    & 2      & 2       & 2      \\
+Norm.          & BN     & BN      & BN     \\
+Activation     & ReLU   & SiLU    & ReLU   \\
+Channel Mech.  & UIB    & SE      & Ghost  \\
+Pretrain       & IN-1K  & IN-21K+1K & IN-1K \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Seluruh model dilatih dengan strategi \textit{partial fine-tuning}: backbone dibekukan sebagian (25\% layer terakhir di-\textit{unfreeze}), hanya classifier head dan sebagian layer atas yang dilatih. Optimizer AdamW digunakan dengan learning rate $10^{-4}$, weight decay $10^{-4}$, cosine annealing scheduler dengan 2 epoch warmup, dan gradient clipping $1.0$.
+
+\section{Results dan Performance}
+
+Metrik evaluasi yang digunakan: \textit{Accuracy} (top-1), \textit{F1-score} (macro), dan \textit{AUC-ROC} (macro, One-vs-Rest). Checkpoint terbaik berdasarkan AUC-ROC validasi tertinggi digunakan untuk evaluasi test set.
+
+\begin{center}
+\captionof{table}{Metrik Evaluasi pada Test Set}
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Model} & \textbf{AUC-ROC} & \textbf{Accuracy} & \textbf{F1 (macro)} \\
+\midrule
+MobileNetV4    & -- & -- & -- \\
+EfficientNetV2-S & -- & -- & -- \\
+GhostNetV3     & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Analisis}
+
+\begin{itemize}
+    \item \textbf{MobileNetV4:} --
+    \item \textbf{EfficientNetV2-S:} --
+    \item \textbf{GhostNetV3:} --
+\end{itemize}
+
+\section{Kesimpulan}
+
+--
+
+\end{multicols}
+\end{document}

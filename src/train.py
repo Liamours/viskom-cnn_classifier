@@ -12,7 +12,7 @@ from torch.optim.lr_scheduler import (
 )
 from tqdm import tqdm
 
-from dataset import ChestMNISTDataset
+from dataset import BloodMNISTDataset
 from models  import build_model
 from trainer import Trainer
 
@@ -27,15 +27,6 @@ def set_seed(seed: int):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-
-
-def compute_pos_weight(dataset) -> list:
-    """Compute per-class pos_weight = n_neg / n_pos from training labels."""
-    labels = dataset.labels                        # [N, 14] float32
-    n_pos  = labels.sum(dim=0)                     # [14]
-    n_neg  = len(dataset) - n_pos                  # [14]
-    pw     = (n_neg / n_pos.clamp(min=1.0)).tolist()
-    return pw
 
 
 def build_optimizer(model, cfg: dict):
@@ -98,8 +89,8 @@ def main(config_path: str):
     print(f"Experiment : {cfg['experiment']['name']}\n")
 
     dcfg = cfg["data"]
-    train_ds = ChestMNISTDataset("train", dcfg["processed_dir"], dcfg["input_size"])
-    val_ds   = ChestMNISTDataset("val",   dcfg["processed_dir"], dcfg["input_size"])
+    train_ds = BloodMNISTDataset("train", dcfg["processed_dir"], dcfg["input_size"])
+    val_ds   = BloodMNISTDataset("val",   dcfg["processed_dir"], dcfg["input_size"])
 
     nw = dcfg["num_workers"]
     train_loader = DataLoader(
@@ -112,12 +103,6 @@ def main(config_path: str):
         num_workers=nw, pin_memory=True,
         persistent_workers=nw > 0, prefetch_factor=4 if nw > 0 else None,
     )
-
-    # compute pos_weight from train labels (overrides yaml if null)
-    if not cfg["training"].get("pos_weight"):
-        pw = compute_pos_weight(train_ds)
-        cfg["training"]["pos_weight"] = pw
-        print(f"pos_weight computed — min={min(pw):.1f}  max={max(pw):.1f}\n")
 
     model     = build_model(cfg).to(device)
     optimizer = build_optimizer(model, cfg)
@@ -154,10 +139,9 @@ def main(config_path: str):
         trainer.save_best(val_metrics)
 
         lr = optimizer.param_groups[0]['lr']
-        print(f"  train_loss : {train_metrics['train_loss']:.4f}  |  train_f1 : {train_metrics['train_f1']:.4f}")
-        print(f"  val_loss   : {val_metrics['val_loss']:.4f}  |  val_f1   : {val_metrics['val_f1']:.4f}  (macro)")
-        print(f"  val_auc    : {val_metrics['val_auc']:.4f}  |  val_ham  : {val_metrics['val_ham']:.4f}")
-        print(f"  val_subset : {val_metrics['val_subset']:.4f}  |  lr       : {lr:.2e}\n")
+        print(f"  train_loss : {train_metrics['train_loss']:.4f}  |  train_acc : {train_metrics['train_acc']:.4f}  |  train_f1 : {train_metrics['train_f1']:.4f}")
+        print(f"  val_loss   : {val_metrics['val_loss']:.4f}  |  val_acc   : {val_metrics['val_acc']:.4f}  |  val_f1   : {val_metrics['val_f1']:.4f}  (macro)")
+        print(f"  val_auc    : {val_metrics['val_auc']:.4f}  |  lr        : {lr:.2e}\n")
 
         log_rows.append(metrics)
 

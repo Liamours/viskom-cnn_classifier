@@ -9,11 +9,11 @@ from torch.utils.data import Dataset
 MEAN = [0.485, 0.456, 0.406]
 STD  = [0.229, 0.224, 0.225]
 
-LABEL_COLS = [
-    "atelectasis", "cardiomegaly", "consolidation", "edema", "effusion",
-    "emphysema", "fibrosis", "hernia", "infiltration", "mass",
-    "nodule", "pleural", "pneumonia", "pneumothorax",
+CLASS_NAMES = [
+    "basophil", "eosinophil", "erythroblast", "ig",
+    "lymphocyte", "monocyte", "neutrophil", "platelet",
 ]
+NUM_CLASSES = len(CLASS_NAMES)
 
 
 def get_transforms(input_size: int) -> v2.Compose:
@@ -24,24 +24,22 @@ def get_transforms(input_size: int) -> v2.Compose:
     ])
 
 
-class ChestMNISTDataset(Dataset):
+class BloodMNISTDataset(Dataset):
     def __init__(self, split: str, processed_dir: str, input_size: int = 224):
         self.root      = Path(processed_dir) / split
         self.transform = get_transforms(input_size)
 
         df = pd.read_csv(Path(processed_dir) / f"{split}.csv")
         self.filenames = df["filename"].tolist()
-        self.labels    = torch.tensor(
-            df[LABEL_COLS].values, dtype=torch.float32
-        )
+        self.labels    = torch.tensor(df["label"].values, dtype=torch.long)
 
     def __len__(self) -> int:
         return len(self.filenames)
 
     def __getitem__(self, idx: int):
-        img   = read_image(
+        img = read_image(
             str(self.root / self.filenames[idx]),
             mode=ImageReadMode.RGB,
         )
-        img   = self.transform(img)
+        img = self.transform(img)
         return img, self.labels[idx]

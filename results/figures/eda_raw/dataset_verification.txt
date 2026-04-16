@@ -1,0 +1,11 @@
+=== Dataset Verification vs Official BloodMNIST ===
+
+Split      Expected     Actual    Match
+------------------------------------------
+train         11959      11959       OK
+val            1712       1712       OK
+test           3421       3421       OK
+------------------------------------------
+TOTAL         17092      17092       OK
+
+Result: ALL COUNTS MATCH

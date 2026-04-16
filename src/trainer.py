@@ -3,7 +3,7 @@ import torch.nn as nn
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
-from sklearn.metrics import roc_auc_score, f1_score
+from sklearn.metrics import f1_score
 
 
 class Trainer:
@@ -15,10 +15,7 @@ class Trainer:
         self.device     = device
         self.grad_clip  = cfg["training"].get("grad_clip")
 
-        pos_weight = cfg["training"].get("pos_weight")
-        pw = torch.tensor(pos_weight, dtype=torch.float32).to(device) \
-            if pos_weight else None
-        self.criterion = nn.BCEWithLogitsLoss(pos_weight=pw)
+        self.criterion   = nn.CrossEntropyLoss()
 
         self.weights_dir = Path(cfg["output"]["weights_dir"])
         self.exp_name    = cfg["experiment"]["name"]
@@ -29,9 +26,9 @@ class Trainer:
 
     def train_epoch(self, loader) -> dict:
         self.model.train()
-        total_loss  = 0.0
-        all_preds   = []
-        all_labels  = []
+        total_loss = 0.0
+        all_preds  = []
+        all_labels = []
 
         for imgs, labels in tqdm(loader, desc="  train", leave=False):
             imgs, labels = (imgs.to(self.device, non_blocking=True),
@@ -45,27 +42,27 @@ class Trainer:
             self.optimizer.step()
             total_loss += loss.item() * imgs.size(0)
 
-            preds = (torch.sigmoid(logits) >= 0.5).int().cpu().numpy()
+            preds = logits.argmax(dim=1).cpu().numpy()
             all_preds.append(preds)
-            all_labels.append(labels.int().cpu().numpy())
+            all_labels.append(labels.cpu().numpy())
 
         preds  = np.concatenate(all_preds)
         labels = np.concatenate(all_labels)
+        acc    = (preds == labels).mean()
         f1     = f1_score(labels, preds, average="macro", zero_division=0)
-        ham    = (preds == labels).mean()
 
         return {
             "train_loss": total_loss / len(loader.dataset),
+            "train_acc":  acc,
             "train_f1":   f1,
-            "train_ham":  ham,
         }
 
     @torch.no_grad()
     def val_epoch(self, loader) -> dict:
         self.model.eval()
-        total_loss  = 0.0
-        all_logits  = []
-        all_labels  = []
+        total_loss = 0.0
+        all_logits = []
+        all_labels = []
 
         for imgs, labels in tqdm(loader, desc="  val  ", leave=False):
             imgs, labels = (imgs.to(self.device, non_blocking=True),
@@ -78,24 +75,23 @@ class Trainer:
 
         logits = torch.cat(all_logits).numpy()
         labels = torch.cat(all_labels).numpy()
-        probs  = 1 / (1 + np.exp(-logits))
-        preds  = (probs >= 0.5).astype(int)
+        probs  = torch.softmax(torch.tensor(logits), dim=1).numpy()
+        preds  = logits.argmax(axis=1)
+
+        acc = (preds == labels).mean()
+        f1  = f1_score(labels, preds, average="macro", zero_division=0)
 
         try:
-            auc = roc_auc_score(labels, probs, average="macro")
+            from sklearn.metrics import roc_auc_score
+            auc = roc_auc_score(labels, probs, multi_class="ovr", average="macro")
         except ValueError:
             auc = 0.0
 
-        f1      = f1_score(labels, preds, average="macro", zero_division=0)
-        ham     = (preds == labels.astype(int)).mean()
-        subset  = (preds == labels.astype(int)).all(axis=1).mean()
-
         return {
-            "val_loss":   total_loss / len(loader.dataset),
-            "val_auc":    auc,
-            "val_f1":     f1,
-            "val_ham":    ham,
-            "val_subset": subset,
+            "val_loss": total_loss / len(loader.dataset),
+            "val_auc":  auc,
+            "val_f1":   f1,
+            "val_acc":  acc,
         }
 
     def save_best(self, metrics: dict):

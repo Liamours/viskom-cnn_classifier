@@ -3,12 +3,17 @@ from pathlib import Path
 from datetime import date
 
 RAW_DIR  = Path(__file__).parent.parent / "data" / "raw"
-EDA_DIR  = Path(__file__).parent.parent / "results" / "figures" / "eda"
+EDA_DIR  = Path(__file__).parent.parent / "results" / "figures" / "eda_raw"
 OUT_DIR  = Path(__file__).parent.parent / "results" / "logs"
 SPLITS   = ["train", "val", "test"]
 PRIORITY = {s: i for i, s in enumerate(SPLITS)}
 
-OFFICIAL = {"train": 78468, "val": 11219, "test": 22433, "total": 112120}
+OFFICIAL = {"train": 11959, "val": 1712, "test": 3421, "total": 17092}
+
+CLASS_NAMES = [
+    "basophil", "eosinophil", "erythroblast", "ig",
+    "lymphocyte", "monocyte", "neutrophil", "platelet",
+]
 
 
 def parse_duplicates(txt_path: Path) -> list[list[str]]:
@@ -48,7 +53,7 @@ def generate():
 
     lines = []
     lines += [
-        f"# Dataset Change Report — ChestMNIST",
+        f"# Dataset Change Report — BloodMNIST",
         f"Generated: {date.today()}",
         "",
         "---",
@@ -57,15 +62,28 @@ def generate():
         "",
         "| Property | Value |",
         "|---|---|",
-        "| Dataset | ChestMNIST (MedMNIST v2) |",
-        "| Modality | Chest X-Ray (grayscale) |",
-        "| Task | Multi-Label Binary Classification (14 labels) |",
+        "| Dataset | BloodMNIST (MedMNIST v2) |",
+        "| Modality | Blood Cell Microscope (RGB) |",
+        "| Task | Multi-Class Classification (8 classes) |",
         "| Image Size | 224 × 224 px |",
+        "| Source | HuggingFace: danjacobellis/bloodmnist_224 |",
         "| License | CC BY 4.0 |",
         "",
         "---",
         "",
-        "## 2. Official Split Counts",
+        "## 2. Classes",
+        "",
+        "| Label | Class Name |",
+        "|---|---|",
+    ]
+    for i, name in enumerate(CLASS_NAMES):
+        lines.append(f"| {i} | {name} |")
+
+    lines += [
+        "",
+        "---",
+        "",
+        "## 3. Official Split Counts",
         "",
         "| Split | Official Count |",
         "|---|---|",
@@ -77,7 +95,7 @@ def generate():
     lines += [
         "---",
         "",
-        "## 3. Downloaded Count (Pre-Cleaning)",
+        "## 4. Downloaded Count (Pre-Cleaning)",
         "",
         "| Split | Downloaded | Match Official |",
         "|---|---|---|",
@@ -94,34 +112,16 @@ def generate():
     lines += [
         "---",
         "",
-        "## 4. Duplicate Detection",
+        "## 5. Duplicate Detection",
         "",
         f"- Method: MD5 hash of raw image bytes",
         f"- Scope: all splits cross-checked",
         f"- Duplicate groups found: **{len(groups)}**",
         f"- Total files to remove: **{len(deletions)}**",
         "",
-        "### Duplicate Groups",
-        "",
-        "| Group | Hash (truncated) | Files | Action |",
-        "|---|---|---|---|",
-    ]
-    for i, group in enumerate(groups, 1):
-        keep, removes = resolve_keep(group)
-        all_files = [f"`{keep}` *(keep)*"] + [f"`{r}` *(delete)*" for r in removes]
-        h = next(
-            line.split("Hash: ")[1]
-            for line in dup_txt.read_text().splitlines()
-            if "Hash:" in line
-        )
-        lines.append(f"| {i} | ... | {', '.join(all_files)} | Keep earliest by train→val→test priority |")
-
-    lines += [
-        "",
         "### Deduplication Strategy",
         "",
         "Priority rule: **train > val > test**. Within same split: keep lower filename index.",
-        "Cross-split duplicates: image is retained in the higher-priority split only.",
         "",
         "### Files Deleted",
         "",
@@ -140,7 +140,7 @@ def generate():
         "",
         "---",
         "",
-        "## 5. Dataset After Cleaning",
+        "## 6. Dataset After Cleaning",
         "",
         "| Split | Before | Removed | After |",
         "|---|---|---|---|",
@@ -153,9 +153,8 @@ def generate():
         "",
         "---",
         "",
-        "## 6. Notes",
+        "## 7. Notes",
         "",
-        "- Duplicates originate from the NIH ChestX-ray14 source dataset.",
         "- Removed images are exact pixel-level duplicates (identical MD5 hash).",
         "- Label metadata CSVs (train.csv, val.csv, test.csv) updated to reflect deletions.",
         "- No label re-assignment performed; only redundant entries removed.",

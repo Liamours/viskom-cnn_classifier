@@ -1,3 +1,4 @@
+import json
 import shutil
 import random
 import pandas as pd
@@ -9,10 +10,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 RAW_DIR  = Path(__file__).parent.parent / "data" / "raw"
 OUT_DIR  = Path(__file__).parent.parent / "data" / "processed"
+LOG_DIR  = Path(__file__).parent.parent / "results" / "logs"
 SPLITS   = ["train", "val", "test"]
-TARGET   = 5000
+TARGET   = 2000
 WORKERS  = 8
 
+# ImageNet stats — kept because frozen backbone layers expect this distribution
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_STD  = [0.229, 0.224, 0.225]
 
 
 # ── Augmentation ────────────────────────────────────────────────────────────
@@ -21,21 +26,22 @@ def cutout(img: Image.Image,
            min_ratio: float = 0.05,
            max_ratio: float = 0.20,
            fill: int = 128) -> Image.Image:
-    arr    = np.array(img).copy()
-    h, w   = arr.shape[:2]
-    ch     = random.uniform(min_ratio, max_ratio)
-    cw     = random.uniform(min_ratio, max_ratio)
-    cut_h  = int(h * ch)
-    cut_w  = int(w * cw)
-    y      = random.randint(0, h - cut_h)
-    x      = random.randint(0, w - cut_w)
+    arr   = np.array(img).copy()
+    h, w  = arr.shape[:2]
+    cut_h = int(h * random.uniform(min_ratio, max_ratio))
+    cut_w = int(w * random.uniform(min_ratio, max_ratio))
+    y     = random.randint(0, h - cut_h)
+    x     = random.randint(0, w - cut_w)
     arr[y:y + cut_h, x:x + cut_w] = fill
     return Image.fromarray(arr)
 
 
 def augment(img: Image.Image) -> Image.Image:
     if random.random() < 0.5:
-        angle = random.uniform(-10, 10)
+        img = img.transpose(Image.FLIP_LEFT_RIGHT)
+
+    if random.random() < 0.5:
+        angle = random.uniform(-15, 15)
         img = img.rotate(angle, resample=Image.BILINEAR, fillcolor=(128, 128, 128))
 
     if random.random() < 0.3:
@@ -57,35 +63,33 @@ def augment(img: Image.Image) -> Image.Image:
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def primary_label(active_labels: str) -> str:
-    return active_labels.split("|")[0]
-
-
-def build_class_pool(df: pd.DataFrame) -> dict[str, list[str]]:
-    pool: dict[str, list[str]] = {}
+def build_class_pool(df: pd.DataFrame) -> dict[int, list[str]]:
+    """Map label int → list of filenames."""
+    pool: dict[int, list[str]] = {}
     for _, row in df.iterrows():
-        lbl = primary_label(row["active_labels"])
+        lbl = int(row["label"])
         pool.setdefault(lbl, []).append(row["filename"])
     return pool
 
 
 # ── Plan ─────────────────────────────────────────────────────────────────────
 
-def plan(df_train: pd.DataFrame) -> dict[str, int]:
+def plan(df_train: pd.DataFrame) -> dict[int, int]:
+    from dataset import CLASS_NAMES
     pool    = build_class_pool(df_train)
     counts  = {lbl: len(fnames) for lbl, fnames in pool.items()}
     to_aug  = {lbl: max(0, TARGET - cnt) for lbl, cnt in counts.items()}
 
-    header  = f"\n{'Class':<20} {'Current':>8} {'Target':>8} {'+Aug':>8} {'Expected':>9} {'x/img':>7}"
+    header = f"\n{'Class':<20} {'Label':>6} {'Current':>8} {'Target':>8} {'+Aug':>8} {'Expected':>9}"
     print(header)
     print("-" * len(header))
-    for lbl in sorted(counts, key=lambda l: counts[l]):
+    for lbl in sorted(counts):
+        name     = CLASS_NAMES[lbl]
         cur      = counts[lbl]
         need     = to_aug[lbl]
         expected = cur + need
-        x_per    = round(need / cur, 1) if need > 0 else 0
         marker   = " *" if need > 0 else ""
-        print(f"{lbl:<20} {cur:>8} {TARGET:>8} {need:>8} {expected:>9} {x_per:>6}x{marker}")
+        print(f"{name:<20} {lbl:>6} {cur:>8} {TARGET:>8} {need:>8} {expected:>9}{marker}")
 
     total_orig = len(df_train)
     total_aug  = sum(to_aug.values())
@@ -123,14 +127,13 @@ def copy_split(split: str):
 
 # ── Augment train ────────────────────────────────────────────────────────────
 
-def process_train(df_train: pd.DataFrame, to_aug: dict[str, int]):
+def process_train(df_train: pd.DataFrame, to_aug: dict[int, int]):
     src_dir = RAW_DIR / "train"
     dst_dir = OUT_DIR / "train"
     dst_dir.mkdir(parents=True, exist_ok=True)
 
     pool = build_class_pool(df_train)
 
-    # Copy originals
     def _copy(fname):
         src = src_dir / fname
         dst = dst_dir / fname
@@ -142,44 +145,40 @@ def process_train(df_train: pd.DataFrame, to_aug: dict[str, int]):
         for _ in tqdm(as_completed(futs), total=len(futs), desc="Copy train originals"):
             pass
 
-    # Generate augmented images
-    new_rows = []
+    new_rows  = []
     aug_counter = 0
 
     for lbl, n_needed in to_aug.items():
         if n_needed == 0:
             continue
 
+        from dataset import CLASS_NAMES
+        class_name   = CLASS_NAMES[lbl]
         source_files = pool[lbl]
-        # sample with replacement if needed
-        samples = [random.choice(source_files) for _ in range(n_needed)]
-        ref_rows = df_train.set_index("filename")
+        samples      = [random.choice(source_files) for _ in range(n_needed)]
+        ref_rows     = df_train.set_index("filename")
 
-        for i, fname in enumerate(tqdm(samples, desc=f"Aug {lbl}", leave=False)):
+        for fname in tqdm(samples, desc=f"Aug {class_name}", leave=False):
             src_path = src_dir / fname
             img      = Image.open(src_path).convert("RGB")
             aug_img  = augment(img)
 
-            new_fname = f"aug_{lbl}_{aug_counter:06d}.png"
+            new_fname = f"aug_{class_name}_{aug_counter:06d}.png"
             aug_img.save(dst_dir / new_fname)
 
             orig_row = ref_rows.loc[fname]
             new_rows.append({
-                "filename":     new_fname,
-                "split":        "train",
-                "active_labels": orig_row["active_labels"],
-                "label_count":  orig_row["label_count"],
-                "width":        aug_img.width,
-                "height":       aug_img.height,
-                "channels":     3,
-                "mean":         round(np.array(aug_img).mean(), 4),
-                "std":          round(np.array(aug_img).std(),  4),
-                "augmented":    True,
-                "source_file":  fname,
-                **{col: orig_row[col]
-                   for col in df_train.columns
-                   if col not in ["filename","split","active_labels","label_count",
-                                  "width","height","channels","mean","std"]},
+                "filename":   new_fname,
+                "split":      "train",
+                "class_name": orig_row["class_name"],
+                "label":      int(orig_row["label"]),
+                "width":      aug_img.width,
+                "height":     aug_img.height,
+                "channels":   3,
+                "mean":       round(np.array(aug_img).mean(), 4),
+                "std":        round(np.array(aug_img).std(),  4),
+                "augmented":  True,
+                "source_file": fname,
             })
             aug_counter += 1
 
@@ -196,15 +195,69 @@ def process_train(df_train: pd.DataFrame, to_aug: dict[str, int]):
     print(f"  Augmented: {len(df_aug):,}")
     print(f"  Total    : {len(df_all):,}")
 
-    # Per-class verification
+    from dataset import CLASS_NAMES
     print(f"\n{'Class':<20} {'Final count':>12}")
     print("-" * 34)
-    pool_final = {}
+    pool_final: dict[str, int] = {}
     for _, row in df_all.iterrows():
-        lbl = primary_label(row["active_labels"])
-        pool_final[lbl] = pool_final.get(lbl, 0) + 1
-    for lbl in sorted(pool_final, key=lambda l: pool_final[l]):
-        print(f"  {lbl:<20} {pool_final[lbl]:>8}")
+        name = CLASS_NAMES[int(row["label"])]
+        pool_final[name] = pool_final.get(name, 0) + 1
+    for name in sorted(pool_final, key=lambda l: pool_final[l]):
+        print(f"  {name:<20} {pool_final[name]:>8}")
+
+
+# ── Dataset stats ────────────────────────────────────────────────────────────
+
+def compute_dataset_stats(split: str = "train") -> dict:
+    """Compute per-channel mean/std from original (non-augmented) processed images."""
+    df       = pd.read_csv(OUT_DIR / f"{split}.csv")
+    # only original images, not augmented
+    if "augmented" in df.columns:
+        df = df[df["augmented"] == False]
+
+    img_dir  = OUT_DIR / split
+    channels = 3
+    n        = 0
+    ch_sum   = np.zeros(channels, dtype=np.float64)
+    ch_sq    = np.zeros(channels, dtype=np.float64)
+
+    for fname in tqdm(df["filename"], desc="Computing stats"):
+        arr = np.array(Image.open(img_dir / fname).convert("RGB")).astype(np.float64) / 255.0
+        ch_sum += arr.mean(axis=(0, 1))
+        ch_sq  += (arr ** 2).mean(axis=(0, 1))
+        n += 1
+
+    mean = (ch_sum / n).tolist()
+    std  = np.sqrt(np.maximum(ch_sq / n - (ch_sum / n) ** 2, 0)).tolist()
+
+    stats = {
+        "split":         split,
+        "n_images":      n,
+        "bloodmnist_mean": [round(v, 4) for v in mean],
+        "bloodmnist_std":  [round(v, 4) for v in std],
+        "imagenet_mean": IMAGENET_MEAN,
+        "imagenet_std":  IMAGENET_STD,
+        "used_for_training": "imagenet",
+        "reason": (
+            "Frozen backbone layers were pretrained with ImageNet normalization. "
+            "Using ImageNet stats keeps input distribution consistent with what "
+            "those layers expect."
+        ),
+    }
+
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = LOG_DIR / "dataset_stats.json"
+    with open(out_path, "w") as f:
+        json.dump(stats, f, indent=2)
+
+    print(f"\n── Dataset Stats ({split}, {n} original images) ──")
+    print(f"  BloodMNIST mean : {[round(v,4) for v in mean]}")
+    print(f"  BloodMNIST std  : {[round(v,4) for v in std]}")
+    print(f"  ImageNet mean   : {IMAGENET_MEAN}  ← used for training")
+    print(f"  ImageNet std    : {IMAGENET_STD}  ← used for training")
+    print(f"  Saved: {out_path}")
+
+    return stats
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -229,4 +282,7 @@ if __name__ == "__main__":
             print("\n=== Processing train (copy + augment) ===")
             process_train(df_train, to_aug)
 
-            print(f"\nDone. Processed data -> {OUT_DIR}")
+            print("\n=== Computing Dataset Stats ===")
+            compute_dataset_stats("train")
+
+            print(f"\nDone. Processed data → {OUT_DIR}")

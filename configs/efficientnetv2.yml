@@ -1,12 +1,12 @@
 experiment:
-  name: mobilenetv4_run1
+  name: efficientnetv2_run1
   seed: 42
 
 model:
-  name: mobilenetv4
-  timm_id: mobilenetv4_conv_medium.e500_r224_in1k
+  name: efficientnetv2
+  timm_id: efficientnetv2_s.in21k_ft_in1k
   num_classes: 8
-  pretrained_weights: models/weights/mobilenetv4.pth
+  pretrained_weights: models/weights/efficientnetv2.pth
 
 finetune:
   enabled: true
@@ -15,11 +15,11 @@ finetune:
 data:
   processed_dir: data/processed
   input_size: 224
-  batch_size: 16
-  num_workers: 8
+  batch_size: 32
+  num_workers: 4
 
 training:
-  epochs: 50
+  epochs: 30
   lr: 1.0e-4
   weight_decay: 1.0e-4
   optimizer: adamw
@@ -29,5 +29,5 @@ training:
   pos_weight: null
 
 output:
-  weights_dir: models/weights/mobilenetv4
-  logs_dir: results/logs/mobilenetv4
+  weights_dir: models/weights/efficientnetv2
+  logs_dir: results/logs/efficientnetv2

@@ -3,7 +3,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 RAW_DIR = Path(__file__).parent.parent / "data" / "raw"
-EDA_DIR = Path(__file__).parent.parent / "results" / "figures" / "eda"
+EDA_DIR = Path(__file__).parent.parent / "results" / "figures" / "eda_raw"
 SPLITS  = ["train", "val", "test"]
 PRIORITY = {s: i for i, s in enumerate(SPLITS)}
 
@@ -35,7 +35,7 @@ def resolve_keep(group: list[str]) -> tuple[str, list[str]]:
 def remove_duplicates():
     dup_path = EDA_DIR / "duplicates.txt"
     if not dup_path.exists():
-        print("duplicates.txt not found. Run eda.py first.")
+        print("duplicates.txt not found. Run eda_raw.py first.")
         return
 
     groups = parse_duplicates(dup_path)
