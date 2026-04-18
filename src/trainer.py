@@ -1,9 +1,10 @@
+import time
 import torch
 import torch.nn as nn
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, precision_score, recall_score
 
 
 class Trainer:
@@ -30,6 +31,7 @@ class Trainer:
         all_preds  = []
         all_labels = []
 
+        t0 = time.perf_counter()
         for imgs, labels in tqdm(loader, desc="  train", leave=False):
             imgs, labels = (imgs.to(self.device, non_blocking=True),
                             labels.to(self.device, non_blocking=True))
@@ -45,16 +47,22 @@ class Trainer:
             preds = logits.argmax(dim=1).cpu().numpy()
             all_preds.append(preds)
             all_labels.append(labels.cpu().numpy())
+        train_time = time.perf_counter() - t0
 
         preds  = np.concatenate(all_preds)
         labels = np.concatenate(all_labels)
         acc    = (preds == labels).mean()
-        f1     = f1_score(labels, preds, average="macro", zero_division=0)
+        f1        = f1_score(labels, preds, average="macro", zero_division=0)
+        precision = precision_score(labels, preds, average="macro", zero_division=0)
+        recall    = recall_score(labels, preds, average="macro", zero_division=0)
 
         return {
-            "train_loss": total_loss / len(loader.dataset),
-            "train_acc":  acc,
-            "train_f1":   f1,
+            "train_loss":      total_loss / len(loader.dataset),
+            "train_acc":       acc,
+            "train_f1":        f1,
+            "train_precision": precision,
+            "train_recall":    recall,
+            "train_time_s":    train_time,
         }
 
     @torch.no_grad()
@@ -78,8 +86,10 @@ class Trainer:
         probs  = torch.softmax(torch.tensor(logits), dim=1).numpy()
         preds  = logits.argmax(axis=1)
 
-        acc = (preds == labels).mean()
-        f1  = f1_score(labels, preds, average="macro", zero_division=0)
+        acc       = (preds == labels).mean()
+        f1        = f1_score(labels, preds, average="macro", zero_division=0)
+        precision = precision_score(labels, preds, average="macro", zero_division=0)
+        recall    = recall_score(labels, preds, average="macro", zero_division=0)
 
         try:
             from sklearn.metrics import roc_auc_score
@@ -88,10 +98,12 @@ class Trainer:
             auc = 0.0
 
         return {
-            "val_loss": total_loss / len(loader.dataset),
-            "val_auc":  auc,
-            "val_f1":   f1,
-            "val_acc":  acc,
+            "val_loss":      total_loss / len(loader.dataset),
+            "val_auc":       auc,
+            "val_f1":        f1,
+            "val_acc":       acc,
+            "val_precision": precision,
+            "val_recall":    recall,
         }
 
     def save_best(self, metrics: dict):

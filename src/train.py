@@ -1,6 +1,7 @@
 import argparse
 import csv
 import random
+import time
 import yaml
 import torch
 import numpy as np
@@ -124,6 +125,8 @@ def main(config_path: str):
     base_lr   = tcfg["lr"]
     log_rows  = []
 
+    total_train_start = time.perf_counter()
+
     for epoch in range(epochs):
         print(f"Epoch {epoch+1}/{epochs}")
         warmup_lr(optimizer, epoch, warmup, base_lr)
@@ -140,10 +143,15 @@ def main(config_path: str):
 
         lr = optimizer.param_groups[0]['lr']
         print(f"  train_loss : {train_metrics['train_loss']:.4f}  |  train_acc : {train_metrics['train_acc']:.4f}  |  train_f1 : {train_metrics['train_f1']:.4f}")
+        print(f"  train_prec : {train_metrics['train_precision']:.4f}  |  train_rec : {train_metrics['train_recall']:.4f}  |  train_time : {train_metrics['train_time_s']:.1f}s")
         print(f"  val_loss   : {val_metrics['val_loss']:.4f}  |  val_acc   : {val_metrics['val_acc']:.4f}  |  val_f1   : {val_metrics['val_f1']:.4f}  (macro)")
+        print(f"  val_prec   : {val_metrics['val_precision']:.4f}  |  val_rec   : {val_metrics['val_recall']:.4f}")
         print(f"  val_auc    : {val_metrics['val_auc']:.4f}  |  lr        : {lr:.2e}\n")
 
         log_rows.append(metrics)
+
+    total_train_time = time.perf_counter() - total_train_start
+    print(f"Total training time : {total_train_time:.1f}s  ({total_train_time/60:.2f} min)")
 
     save_log(log_rows, cfg)
     print("\nTraining complete.")

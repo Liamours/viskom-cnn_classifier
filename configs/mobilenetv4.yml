@@ -15,11 +15,11 @@ finetune:
 data:
   processed_dir: data/processed
   input_size: 224
-  batch_size: 16
-  num_workers: 8
+  batch_size: 32
+  num_workers: 4
 
 training:
-  epochs: 2
+  epochs: 50
   lr: 1.0e-4
   weight_decay: 1.0e-4
   optimizer: adamw

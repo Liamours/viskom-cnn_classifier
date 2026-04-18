@@ -15,7 +15,7 @@ finetune:
 data:
   processed_dir: data/processed
   input_size: 224
-  batch_size: 16
+  batch_size: 32
   num_workers: 8
 
 training:

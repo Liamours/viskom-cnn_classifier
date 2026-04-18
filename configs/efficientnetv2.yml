@@ -19,7 +19,7 @@ data:
   num_workers: 4
 
 training:
-  epochs: 30
+  epochs: 50
   lr: 1.0e-4
   weight_decay: 1.0e-4
   optimizer: adamw
