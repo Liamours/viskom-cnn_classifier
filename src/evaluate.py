@@ -1,4 +1,5 @@
 import argparse
+import time
 import yaml
 import torch
 import numpy as np
@@ -7,7 +8,7 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 from sklearn.metrics import (
     classification_report, confusion_matrix,
-    roc_auc_score, f1_score
+    roc_auc_score, f1_score, precision_score, recall_score
 )
 
 from dataset import BloodMNISTDataset, CLASS_NAMES
@@ -21,18 +22,34 @@ def load_config(path: str) -> dict:
 
 @torch.no_grad()
 def run_inference(model, loader, device):
-    """Run forward pass — return (labels, probs, preds) as numpy arrays."""
+    """Run forward pass — return (labels, probs, preds, inference_time_s)."""
     model.eval()
     all_logits, all_labels = [], []
+    t0 = time.perf_counter()
     for imgs, labels in loader:
         imgs = imgs.to(device, non_blocking=True)
         all_logits.append(model(imgs).cpu())
         all_labels.append(labels)
+    inference_time = time.perf_counter() - t0
     logits = torch.cat(all_logits)
     labels = torch.cat(all_labels).numpy()
     probs  = torch.softmax(logits, dim=1).numpy()
     preds  = logits.argmax(dim=1).numpy()
-    return labels, probs, preds
+    return labels, probs, preds, inference_time
+
+
+@torch.no_grad()
+def run_single_inference(model, sample_img: torch.Tensor, device) -> float:
+    """Time inference for one sample. Return elapsed seconds."""
+    model.eval()
+    img = sample_img.unsqueeze(0).to(device)
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+    t0 = time.perf_counter()
+    model(img)
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+    return time.perf_counter() - t0
 
 
 def save_classification_report(labels, preds, out_dir: Path, exp_name: str):
@@ -78,9 +95,13 @@ def save_confusion_matrix(labels, preds, out_dir: Path, exp_name: str):
     print(f"Saved: {path}")
 
 
-def save_metrics_summary(labels, probs, preds, out_dir: Path, exp_name: str):
-    acc = (preds == labels).mean()
-    f1  = f1_score(labels, preds, average="macro", zero_division=0)
+def save_metrics_summary(labels, probs, preds, out_dir: Path, exp_name: str,
+                         inference_time_all: float, inference_time_one: float):
+    acc       = (preds == labels).mean()
+    f1        = f1_score(labels, preds, average="macro", zero_division=0)
+    precision = precision_score(labels, preds, average="macro", zero_division=0)
+    recall    = recall_score(labels, preds, average="macro", zero_division=0)
+    n_samples = len(labels)
 
     try:
         auc = roc_auc_score(labels, probs, multi_class="ovr", average="macro")
@@ -91,7 +112,12 @@ def save_metrics_summary(labels, probs, preds, out_dir: Path, exp_name: str):
         f"=== Evaluation Summary — {exp_name} ===\n",
         f"AUC-ROC (macro OVR) : {auc:.4f}",
         f"F1 (macro)          : {f1:.4f}",
+        f"Precision (macro)   : {precision:.4f}",
+        f"Recall (macro)      : {recall:.4f}",
         f"Accuracy (top-1)    : {acc:.4f}",
+        f"\nInference Time:",
+        f"  Full dataset ({n_samples} samples) : {inference_time_all:.4f}s  ({inference_time_all/n_samples*1000:.3f} ms/sample)",
+        f"  Single sample                    : {inference_time_one*1000:.3f} ms",
         f"\nPer-class AUC-ROC:",
     ]
     for i, name in enumerate(CLASS_NAMES):
@@ -116,7 +142,8 @@ CHECKPOINTS = ["best_auc", "best_loss", "latest"]
 
 
 def evaluate_checkpoint(model, ckpt_name: str, cfg: dict,
-                        test_loader, device, out_dir: Path):
+                        test_loader, device, out_dir: Path,
+                        sample_img: torch.Tensor):
     exp       = cfg["experiment"]["name"]
     ckpt_file = f"{exp}_{ckpt_name}.pth"
     ckpt_path = Path(cfg["output"]["weights_dir"]) / ckpt_file
@@ -135,8 +162,10 @@ def evaluate_checkpoint(model, ckpt_name: str, cfg: dict,
     sub_dir.mkdir(parents=True, exist_ok=True)
     tag = f"{exp}_{ckpt_name}"
 
-    labels, probs, preds = run_inference(model, test_loader, device)
-    save_metrics_summary(labels, probs, preds, sub_dir, tag)
+    labels, probs, preds, infer_all = run_inference(model, test_loader, device)
+    infer_one = run_single_inference(model, sample_img, device)
+    print(f"  Inference — full: {infer_all:.4f}s  |  single: {infer_one*1000:.3f}ms")
+    save_metrics_summary(labels, probs, preds, sub_dir, tag, infer_all, infer_one)
     save_classification_report(labels, preds, sub_dir, tag)
     save_confusion_matrix(labels, preds, sub_dir, tag)
 
@@ -165,8 +194,11 @@ def main(config_path: str):
 
     model = build_model(cfg).to(device)
 
+    # Fix sample index 0 — same image used across all checkpoints and all models
+    sample_img, _ = test_ds[0]
+
     for ckpt_name in CHECKPOINTS:
-        evaluate_checkpoint(model, ckpt_name, cfg, test_loader, device, out_dir)
+        evaluate_checkpoint(model, ckpt_name, cfg, test_loader, device, out_dir, sample_img)
 
     print(f"\nAll outputs saved to: {out_dir}")
 
