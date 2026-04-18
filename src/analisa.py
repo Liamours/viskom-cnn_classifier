@@ -23,9 +23,9 @@ f1 = pd.read_csv(log_dir / "efficientnetv2/efficientnetv2_run1_log.csv")
 f2 = pd.read_csv(log_dir / "mobilenetv4/mobilenetv4_run1_log.csv")
 f3 = pd.read_csv(log_dir / "ghostnetv3/ghostnetv3_run1_log.csv")
 
-for metric, ylabel, title, fname in [
-    ("val_f1",   "Val F1",   "Validation F1",   "val_f1.jpg"),
-    ("val_loss", "Val Loss", "Validation Loss",  "val_loss.jpg"),
+for metric, ylabel, title, fname, ylim in [
+    ("val_f1",   "Val F1",   "Validation F1",   "val_f1.jpg",   (0.9, 1)),
+    ("val_loss", "Val Loss", "Validation Loss",  "val_loss.jpg", (0, 2)),
 ]:
     plt.figure()
     for df, label in [(f1, "efficientnetv2"), (f2, "mobilenetv4"), (f3, "ghostnetv3")]:
@@ -34,8 +34,8 @@ for metric, ylabel, title, fname in [
     plt.ylabel(ylabel)
     plt.title(title)
     plt.legend()
+    plt.ylim(ylim)  # <-- tambahan ini
     plt.savefig(out_dir / fname, format="jpg", dpi=300)
-    plt.show()
     plt.close()
 
 print("Validation curves saved.")
@@ -152,7 +152,6 @@ plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0.05, hspace=0.1)
 
 save_path = str(out_dir / "ghostnetv3_combined.jpg")
 plt.savefig(save_path, format="jpg", dpi=200, bbox_inches="tight")
-plt.show()
 plt.close()
 
 print(f"Saved: {save_path}")
